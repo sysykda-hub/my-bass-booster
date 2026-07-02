@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>重低音ブースター（強化版・簡単）</title>
+<style>
+  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial; background:#071022; color:#e6eef8; margin:0; padding:20px; display:flex; justify-content:center;}
+  .card{width:800px; max-width:100%; background:#071427; border-radius:12px; padding:18px; box-shadow:0 10px 30px rgba(0,0,0,0.6);}
+  h1{margin:0 0 12px;font-size:18px}
+  label{display:block;margin-top:10px;color:#cfe6ff;font-size:13px}
+  input[type=file]{width:100%}
+  .row{display:flex;gap:8px;margin-top:8px}
+  button{padding:8px 10px;border-radius:8px;border:0;background:#11405a;color:#e6eef8;cursor:pointer}
+  .preset{background:#0f5a78}
+  .controls{display:flex;gap:8px;align-items:center;margin-top:8px}
+  .slider{width:100%}
+  .col{display:flex;flex-direction:column;gap:10px}
+  canvas{width:100%;height:100px;border-radius:8px;background:#04121a;margin-top:10px;display:block}
+  .small{font-size:12px;color:#9fb8d9}
+  .flex{display:flex;gap:12px}
+  .box{flex:1}
+  .footer{margin-top:12px;font-size:12px;color:#9fb8d9}
+  .inline{display:inline-block}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>重低音ブースター（強化版・簡単）</h1>
+
+    <label>音声ファイルを選択（mp3/wav 等）</label>
+    <input id="file" type="file" accept="audio/*">
+
+    <div class="row">
+      <button id="play">再生</button>
+      <button id="pause">一時停止</button>
+      <button id="stop">停止</button>
+      <button id="mute">ミュート切替</button>
+      <div style="flex:1"></div>
+      <div class="small">現在: <span id="status">準備</span></div>
+    </div>
+
+    <label>プリセット</label>
+    <div class="row">
+      <button class="preset" data-preset="mild">Mild</button>
+      <button class="preset" data-preset="boost">Boost</button>
+      <button class="preset" data-preset="heavy">Heavy</button>
+      <button class="preset" data-preset="extreme">Extreme</button>
+    </div>
+
+    <div class="flex" style="margin-top:12px">
+      <div class="box col">
+        <label>低域周波数 (Hz)</label>
+        <input id="bassFreq" class="slider" type="range" min="40" max="250" value="100">
+        <div class="small">現在: <span id="bassFreqVal">100</span> Hz</div>
+
+        <label>低域ゲイン (dB)</label>
+        <input id="bassGain" class="slider" type="range" min="-12" max="24" value="10">
+        <div class="small">現在: <span id="bassGainVal">10</span> dB</div>
+
+        <label>中低域ピーク周波数 (Hz)</label>
+        <input id="peakFreq" class="slider" type="range" min="50" max="400" value="120">
+        <div class="small">現在: <span id="peakFreqVal">120</span> Hz</div>
+
+        <label>ピークゲイン (dB)</label>
+        <input id="peakGain" class="slider" type="range" min="-12" max="18" value="6">
+        <div class="small">現在: <span id="peakGainVal">6</span> dB</div>
+      </div>
+
+      <div class="box col">
+        <label>ピークQ（幅）</label>
+        <input id="peakQ" class="slider" type="range" min="0.3" max="8" step="0.1" value="1.2">
+        <div class="small">現在: <span id="peakQVal">1.2</span></div>
+
+        <label>プレゲイン（dB）</label>
+        <input id="preGain" class="slider" type="range" min="0" max="8" step="0.1" value="1.5">
+        <div class="small">現在: <span id="preGainVal">1.5</span> dB</div>
+
+        <label>サチュレーション（暖かさ）</label>
+        <input id="satur" class="slider" type="range" min="0" max="100" value="22">
+        <div class="small">現在: <span id="saturVal">22</span></div>
+
+        <label>マスター音量 (dB)</label>
+        <input id="masterGain" class="slider" type="range" min="-24" max="12" value="0">
+        <div class="small">現在: <span id="masterGainVal">0</span> dB</div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <label class="small"><input id="compToggle" type="checkbox" checked> コンプレッサ有効</label>
+      <label class="small"><input id="limiterToggle" type="checkbox" checked> リミッター風（強め）</label>
+      <div style="flex:1"></div>
+      <button id="reset">リセット</button>
+    </div>
+
+    <label>スペクトラム（視覚化）</label>
+    <canvas id="vis"></canvas>
+
+    <p class="footer">このページはブラウザ内で処理します。音が大きくならないようコンプレッサ／リミッターを搭載しています。ファイル出力（処理済み音声の保存）が必要なら教えてください。</p>
+
+    <audio id="audio" crossorigin="anonymous" style="display:none"></audio>
+  </div>
+
+<script>
+(() => {
+  const fileIn = document.getElementById('file');
+  const playBtn = document.getElementById('play');
+  const pauseBtn = document.getElementById('pause');
+  const stopBtn = document.getElementById('stop');
+  const muteBtn = document.getElementById('mute');
+  const statusEl = document.getElementById('status');
+
+  const presets = document.querySelectorAll('.preset');
+  const bassFreq = document.getElementById('bassFreq');
+  const bassGain = document.getElementById('bassGain');
+  const peakFreq = document.getElementById('peakFreq');
+  const peakGain = document.getElementById('peakGain');
+  const peakQ = document.getElementById('peakQ');
+  const preGain = document.getElementById('preGain');
+  const satur = document.getElementById('satur');
+  const masterGain = document.getElementById('masterGain');
+  const compToggle = document.getElementById('compToggle');
+  const limiterToggle = document.getElementById('limiterToggle');
+  const resetBtn = document.getElementById('reset');
+
+  const elemsMap = [
+    [bassFreq, 'bassFreqVal'],
+    [bassGain, 'bassGainVal'],
+    [peakFreq, 'peakFreqVal'],
+    [peakGain, 'peakGainVal'],
+    [peakQ, 'peakQVal'],
+    [preGain, 'preGainVal'],
+    [satur, 'saturVal'],
+    [masterGain, 'masterGainVal']
+  ];
+  elemsMap.forEach(([el, id]) => {
+    const display = document.getElementById(id);
+    if (display) display.textContent = el.value;
+    el.addEventListener('input', () => {
+      if (display) display.textContent = el.value;
+      applyParams();
+    });
+  });
+
+  const canvas = document.getElementById('vis');
+  const ctx = canvas.getContext('2d');
+
+  let audioCtx = null;
+  let audioEl = document.getElementById('audio');
+  let sourceNode = null;
+  let preGainNode, lowShelf, peaking, waveShaper, compressor, masterGainNode, analyser, limiterNode;
+
+  let rafId = null;
+  let isMuted = false;
+
+  function ensureAudioContext() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (!preGainNode) preGainNode = audioCtx.createGain();
+    if (!lowShelf) lowShelf = audioCtx.createBiquadFilter();
+    if (!peaking) peaking = audioCtx.createBiquadFilter();
+    if (!waveShaper) waveShaper = audioCtx.createWaveShaper();
+    if (!compressor) compressor = audioCtx.createDynamicsCompressor();
+    if (!masterGainNode) masterGainNode = audioCtx.createGain();
+    if (!analyser) analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+
+    lowShelf.type = 'lowshelf';
+    peaking.type = 'peaking';
+
+    // default compressor settings (safe)
+    compressor.threshold.setValueAtTime(-12, audioCtx.currentTime);
+    compressor.knee.setValueAtTime(30, audioCtx.currentTime);
+    compressor.ratio.setValueAtTime(6, audioCtx.currentTime);
+    compressor.attack.setValueAtTime(0.003, audioCtx.currentTime);
+    compressor.release.setValueAtTime(0.25, audioCtx.currentTime);
+  }
+
+  function makeDistortionCurve(amount) {
+    const k = typeof amount === 'number' ? amount : 50;
+    const n = 44100;
+    const curve = new Float32Array(n);
+    const deg = Math.PI / 180;
+    for (let i = 0; i < n; ++i) {
+      const x = (i * 2) / n - 1;
+      curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
+    }
+    return curve;
+  }
+な
+  function connectChain() {
+    if (!audioCtx || !sourceNode) return;
+    // disconnect safely
+    try { sourceNode.disconnect(); } catch(e){}
+    try { preGainNode.disconnect(); } catch(e){}
+    try { lowShelf.disconnect(); } catch(e){}
+    try { peaking.disconnect(); } catch(e){}
+    try { waveShaper.disconnect(); } catch(e){}
+    try { compressor.disconnect(); } catch(e){}
+    try { masterGainNode.disconnect(); } catch(e){}
+    try { analyser.disconnect(); } catch(e){}
+    try { limiterNode && limiterNode.disconnect(); } catch(e){}
+
+    // chain: source -> preGain -> lowShelf -> peaking -> waveShaper -> (compressor) -> (limiter) -> masterGain -> analyser -> destination
+    sourceNode.connect(preGainNode);
+    preGainNode.connect(lowShelf);
+    lowShelf.connect(peaking);
+    peaking.connect(waveShaper);
+
+    if (compToggle.checked) {
+      waveShaper.connect(compressor);
+      if (limiterToggle.checked) {
+        // limiter via high-ratio compressor for simplicity
+        limiterNode = audioCtx.createDynamicsCompressor();
+        limiterNode.threshold.setValueAtTime(-1, audioCtx.currentTime);
+        limiterNode.knee.setValueAtTime(0, audioCtx.currentTime);
+        limiterNode.ratio.setValueAtTime(20, audioCtx.currentTime);
+        limiterNode.attack.setValueAtTime(0.001, audioCtx.currentTime);
+        limiterNode.release.setValueAtTime(0.05, audioCtx.currentTime);
+        compressor.connect(limiterNode);
+        limiterNode.connect(masterGainNode);
+      } else {
+        compressor.connect(masterGainNode);
+      }
+    } else {
+      waveShaper.connect(masterGainNode);
+    }
+
+    masterGainNode.connect(analyser);
+    analyser.connect(audioCtx.destination);
+  }
+
+  function applyParams() {
+    if (!audioCtx) return;
+    // pre-gain value: convert dB to linear
+    const preDb = Number(preGain.value);
+    preGainNode.gain.setTargetAtTime(Math.pow(10, preDb/20), audioCtx.currentTime, 0.01);
+
+    // low shelf
+    lowShelf.frequency.setTargetAtTime(Number(bassFreq.value), audioCtx.currentTime, 0.01);
+    lowShelf.gain.setTargetAtTime(Number(bassGain.value), audioCtx.currentTime, 0.01);
+
+    // peaking
+    peaking.frequency.setTargetAtTime(Number(peakFreq.value), audioCtx.currentTime, 0.01);
+    peaking.gain.setTargetAtTime(Number(peakGain.value), audioCtx.currentTime, 0.01);
+    peaking.Q.setTargetAtTime(Number(peakQ.value), audioCtx.currentTime, 0.01);
+
+    // waveshaper saturation
+    const sat = Number(satur.value);
+    // map slider 0..100 to curve amount 0..80
+    const curveAmount = sat * 0.8;
+    waveShaper.curve = makeDistortionCurve(curveAmount);
+    waveShaper.oversample = '4x';
+
+    // master gain (dB)
+    const mDb = Number(masterGain.value);
+    masterGainNode.gain.setTargetAtTime(Math.pow(10, mDb/20), audioCtx.currentTime, 0.01);
+  }
+
+  function startVisualizer() {
+    if (!analyser) return;
+    cancelAnimationFrame(rafId);
+    const bufferLength = analyser.frequencyBinCount;
+    const data = new Uint8Array(bufferLength);
+
+    function resize() {
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = canvas.clientWidth * dpr;
+      canvas.height = canvas.clientHeight * dpr;
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    function draw() {
+      analyser.getByteFrequencyData(data);
+      ctx.clearRect(0,0,canvas.clientWidth,canvas.clientHeight);
+      const w = canvas.clientWidth / bufferLength;
+      for (let i = 0; i < bufferLength; i++) {
+        const v = data[i] / 255;
+        const h = v * canvas.clientHeight;
+        // more emphasis on low bars with color shift
+        const hue = 200 - (i / bufferLength) * 160;
+        ctx.fillStyle = `hsl(${hue}, 85%, ${30 + v*30}%)`;
+        ctx.fillRect(i*w, canvas.clientHeight - h, Math.max(1, w-1), h);
+      }
+      rafId = requestAnimationFrame(draw);
+    }
+    draw();
+  }
+
+  function stopVisualizer() {
+    cancelAnimationFrame(rafId);
+    ctx.clearRect(0,0,canvas.clientWidth,canvas.clientHeight);
+  }
+
+  fileIn.addEventListener('change', (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const url = URL.createObjectURL(f);
+    audioEl.src = url;
+    audioEl.load();
+    statusEl.textContent = `ファイル選択: ${f.name}`;
+    // rebuild nodes when new source available
+    setupNodes();
+  });
+
+  async function setupNodes() {
+    if (!audioEl.src) return;
+    ensureAudioContext();
+
+    // close old source if exists
+    try { if (sourceNode) sourceNode.disconnect(); } catch(e){}
+    // create media element source
+    sourceNode = null;
+    try {
+      sourceNode = audioCtx.createMediaElementSource(audioEl);
+    } catch (e) {
+      // some browsers block cross-origin or multiple creation — create a new audio element fallback
+      console.warn('createMediaElementSource failed, creating buffer source fallback');
+      // fallback: do nothing, user can still play with <audio> element native
+      statusEl.textContent = '注意: ブラウザ制約で処理が制限されることがあります';
+      return;
+    }
+
+    applyParams();
+    connectChain();
+    await resumeIfNeeded();
+  }
+
+  async function resumeIfNeeded() {
+    if (!audioCtx) return;
+    if (audioCtx.state === 'suspended') {
+      try { await audioCtx.resume(); } catch(e){}
+    }
+  }
+
+  playBtn.addEventListener('click', async () => {
+    if (!audioEl.src) { alert('先に音声ファイルを選択してください'); return; }
+    await setupNodes();
+    await resumeIfNeeded();
+    try {
+      await audioEl.play();
+      statusEl.textContent = '再生中';
+      startVisualizer();
+    } catch (err) {
+      alert('再生エラー： ブラウザのオーディオ許可やタップ操作が必要な場合があります');
+    }
+  });
+
+  pauseBtn.addEventListener('click', () => {
+    audioEl.pause();
+    statusEl.textContent = '一時停止';
+    stopVisualizer();
+  });
+
+  stopBtn.addEventListener('click', () => {
+    audioEl.pause();
+    audioEl.currentTime = 0;
+    statusEl.textContent = '停止';
+    stopVisualizer();
+  });
+
+  muteBtn.addEventListener('click', () => {
+    isMuted = !isMuted;
+    audioEl.muted = isMuted;
+    muteBtn.textContent = isMuted ? 'ミュート解除' : 'ミュート切替';
+  });
+
+  presets.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const p = btn.dataset.preset;
+      if (p === 'mild') {
+        bassFreq.value = 110; bassGain.value = 6; peakFreq.value = 120; peakGain.value = 3; peakQ.value = 1.0; preGain.value = 1.0; satur.value = 12; masterGain.value = 0;
+      } else if (p === 'boost') {
+        bassFreq.value = 100; bassGain.value = 10; peakFreq.value = 120; peakGain.value = 6; peakQ.value = 1.2; preGain.value = 1.5; satur.value = 22; masterGain.value = 0;
+      } else if (p === 'heavy') {
+        bassFreq.value = 90; bassGain.value = 14; peakFreq.value = 120; peakGain.value = 9; peakQ.value = 1.4; preGain.value = 2.0; satur.value = 32; masterGain.value = -1;
+      } else if (p === 'extreme') {
+        bassFreq.value = 70; bassGain.value = 18; peakFreq.value = 110; peakGain.value = 12; peakQ.value = 1.6; preGain.value = 3.0; satur.value = 48; masterGain.value = -3;
+      }
+      elemsMap.forEach(([el, id]) => {
+        const display = document.getElementById(id);
+        if (display) display.textContent = el.value;
+      });
+      applyParams();
+    });
+  });
+
+  compToggle.addEventListener('change', () => {
+    connectChain();
+    applyParams();
+  });
+  limiterToggle.addEventListener('change', () => {
+    connectChain();
+    applyParams();
+  });
+
+  resetBtn.addEventListener('click', () => {
+    // defaults
+    bassFreq.value = 100; bassGain.value = 10; peakFreq.value = 120; peakGain.value = 6; peakQ.value = 1.2; preGain.value = 1.5; satur.value = 22; masterGain.value = 0;
+    elemsMap.forEach(([el, id]) => {
+      const display = document.getElementById(id);
+      if (display) display.textContent = el.value;
+    });
+    compToggle.checked = true;
+    limiterToggle.checked = true;
+    applyParams();
+  });
+
+  // resize canvas initially
+  function resizeCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = canvas.clientWidth * dpr;
+    canvas.height = canvas.clientHeight * dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  // cleanup on page hide
+  window.addEventListener('pagehide', () => {
+    try { if (audioCtx && audioCtx.state !== 'closed') audioCtx.close(); } catch(e){}
+  });
+
+  // initial defaults
+  resetBtn.click();
+
+})();
+</script>
+</body>
+</html>
